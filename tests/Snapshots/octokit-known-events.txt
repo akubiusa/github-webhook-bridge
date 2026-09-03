@@ -191,6 +191,7 @@ pull_request_review_requested
 pull_request_review_submitted
 pull_request_review_thread_resolved
 pull_request_review_thread_unresolved
+pull_request_stacked
 pull_request_synchronize
 pull_request_unassigned
 pull_request_unlabeled

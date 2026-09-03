@@ -4184,6 +4184,16 @@
       "review_comment_url": "String",
       "review_comments": "Int64",
       "review_comments_url": "String",
+      "stack": {
+        "base": {
+          "ref": "String",
+          "sha": "String"
+        },
+        "id": "Int64",
+        "number": "Int64",
+        "position": "Int64",
+        "size": "Int64"
+      },
       "state": {
         "StringValue": "String",
         "Value": {
