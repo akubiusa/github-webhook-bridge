@@ -117,14 +117,21 @@ public sealed class IssuesAction(
         return fields;
     }
 
-    /// <summary>Builds the body (a title-change diff for the edited event).</summary>
+    /// <summary>Builds the body (a title- or body-change diff for the edited event).</summary>
     private static string? BuildDescription(string action, Issue issue, IssuesEventChanges? changes)
     {
-        // For the edited event, generate a title-change diff as the description.
+        // Prefer a body diff over a title diff when both change in one edit.
+        // The notification has room for only one diff.
+        if (action == "edited" && changes?.Body?.From is not null)
+        {
+            var patch = CreatePatch(changes.Body.From, issue.Body ?? string.Empty, "body");
+            return BuildDiffDescription(patch);
+        }
+
         if (action == "edited" && changes?.Title?.From is not null)
         {
             var patch = CreatePatch(changes.Title.From, issue.Title, "title");
-            return $"```diff\n{patch}```";
+            return BuildDiffDescription(patch);
         }
 
         return issue.Body is not null && issue.Body.Length > 0

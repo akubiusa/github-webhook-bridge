@@ -37,9 +37,21 @@ public class IssuesActionTests
         string? labelName = null,
         string? assigneeLogin = null,
         string? milestoneTitle = null,
-        string issueBody = "") => JsonSerializer.Deserialize<IssuesEvent>(
-        $$"""{"action":"{{action}}","issue":{{TestFixtures.IssueJson(7,"Fix bug",action=="closed"?"closed":"open",body:issueBody.Length>0?issueBody:null,userLogin:"opener",userId:1)}},"repository":{{TestFixtures.RepoJson("test/repo","https://github.com/test/repo")}},"sender":{{TestFixtures.UserJson("sender",2)}}{{(labelName is not null ? $",\"label\":{TestFixtures.LabelJson(labelName)}" : "")}}{{(assigneeLogin is not null ? $",\"assignee\":{TestFixtures.UserJson(assigneeLogin,3)}" : "")}}{{(milestoneTitle is not null ? $",\"milestone\":{TestFixtures.MilestoneJson(milestoneTitle)}" : "")}}}""",
-        OctokitJsonOptions.Value)!;
+        string issueBody = "",
+        string? changedTitleFrom = null,
+        string? changedBodyFrom = null)
+    {
+        var changeFields = new List<string>();
+        if (changedTitleFrom is not null)
+            changeFields.Add("\"title\":{\"from\":\"" + changedTitleFrom + "\"}");
+        if (changedBodyFrom is not null)
+            changeFields.Add("\"body\":{\"from\":\"" + changedBodyFrom + "\"}");
+        var changesJson = changeFields.Count > 0 ? ",\"changes\":{" + string.Join(",", changeFields) + "}" : string.Empty;
+
+        return JsonSerializer.Deserialize<IssuesEvent>(
+            $$"""{"action":"{{action}}","issue":{{TestFixtures.IssueJson(7, "Fix bug", action == "closed" ? "closed" : "open", body: issueBody.Length > 0 ? issueBody : null, userLogin: "opener", userId: 1)}},"repository":{{TestFixtures.RepoJson("test/repo", "https://github.com/test/repo")}},"sender":{{TestFixtures.UserJson("sender", 2)}}{{(labelName is not null ? $",\"label\":{TestFixtures.LabelJson(labelName)}" : "")}}{{(assigneeLogin is not null ? $",\"assignee\":{TestFixtures.UserJson(assigneeLogin, 3)}" : "")}}{{(milestoneTitle is not null ? $",\"milestone\":{TestFixtures.MilestoneJson(milestoneTitle)}" : "")}}{{changesJson}}}""",
+            OctokitJsonOptions.Value)!;
+    }
 
     /// <summary>The opened event contains "opened" and the Issue number in the title.</summary>
     [Fact]
@@ -199,6 +211,78 @@ public class IssuesActionTests
                 It.Is<DiscordMessage>(m =>
                     m.Embeds![0].Fields != null &&
                     m.Embeds![0].Fields!.Any(f => f.Value.Contains("v1.0")))),
+            Times.Once);
+    }
+
+    /// <summary>An edited event with a changed title renders a diff description.</summary>
+    [Fact]
+    public async Task RunAsyncEditedTitleRendersDiffDescription()
+    {
+        (Mock<IDiscordClient>? discord, Mock<IMessageCacheService>? cache, Mock<IGitHubUserMapManager>? userMap) = CreateMocks();
+
+        IssuesAction action = new(
+            discord.Object, cache.Object, userMap.Object,
+            Mock.Of<ILogger<IssuesAction>>(),
+            _webhookUri, "issues", MakeEvent("edited", changedTitleFrom: "Old title"));
+
+        await action.RunAsync();
+
+        discord.Verify(
+            d => d.SendMessageAsync(
+                It.IsAny<Uri>(),
+                It.Is<DiscordMessage>(m =>
+                    m.Embeds![0].Description!.Contains("```diff") &&
+                    m.Embeds![0].Description!.Contains("- Old title") &&
+                    m.Embeds![0].Description!.Contains("+ Fix bug"))),
+            Times.Once);
+    }
+
+    /// <summary>An edited event with a changed body renders a diff description instead of the raw body.</summary>
+    [Fact]
+    public async Task RunAsyncEditedBodyRendersDiffDescription()
+    {
+        (Mock<IDiscordClient>? discord, Mock<IMessageCacheService>? cache, Mock<IGitHubUserMapManager>? userMap) = CreateMocks();
+
+        IssuesAction action = new(
+            discord.Object, cache.Object, userMap.Object,
+            Mock.Of<ILogger<IssuesAction>>(),
+            _webhookUri, "issues", MakeEvent("edited", issueBody: "New body", changedBodyFrom: "Old body"));
+
+        await action.RunAsync();
+
+        discord.Verify(
+            d => d.SendMessageAsync(
+                It.IsAny<Uri>(),
+                It.Is<DiscordMessage>(m =>
+                    m.Embeds![0].Description!.Contains("```diff") &&
+                    m.Embeds![0].Description!.Contains("- Old body") &&
+                    m.Embeds![0].Description!.Contains("+ New body"))),
+            Times.Once);
+    }
+
+    /// <summary>When both title and body change in the same edit, the body diff takes precedence.</summary>
+    [Fact]
+    public async Task RunAsyncEditedTitleAndBodyPrefersBodyDiff()
+    {
+        (Mock<IDiscordClient>? discord, Mock<IMessageCacheService>? cache, Mock<IGitHubUserMapManager>? userMap) = CreateMocks();
+
+        IssuesAction action = new(
+            discord.Object, cache.Object, userMap.Object,
+            Mock.Of<ILogger<IssuesAction>>(),
+            _webhookUri, "issues", MakeEvent(
+                "edited",
+                issueBody: "New body",
+                changedTitleFrom: "Old title",
+                changedBodyFrom: "Old body"));
+
+        await action.RunAsync();
+
+        discord.Verify(
+            d => d.SendMessageAsync(
+                It.IsAny<Uri>(),
+                It.Is<DiscordMessage>(m =>
+                    m.Embeds![0].Description!.Contains("- Old body") &&
+                    !m.Embeds![0].Description!.Contains("- Old title"))),
             Times.Once);
     }
 }
